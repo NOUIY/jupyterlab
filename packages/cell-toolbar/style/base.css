@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 .jp-cell-button .jp-icon3[fill] {
   fill: var(--jp-inverse-layout-color4);
 }
@@ -15,25 +20,21 @@
   flex-direction: row;
   padding: 2px 0;
   min-height: 25px;
-  z-index: 10;
+  z-index: 6;
   position: absolute;
   top: 5px;
   right: 8px;
 
   /* Override .jp-Toolbar */
-  background-color: inherit;
+  background-color: transparent;
   border-bottom: inherit;
   box-shadow: inherit;
 }
 
-/* Overrides for mobile view: Move cell toolbar up, don't hide it if it overlaps */
+/* Overrides for mobile view hiding cell toolbar */
 @media only screen and (max-width: 760px) {
-  .jp-toolbar-overlap .jp-cell-toolbar {
-    display: block;
-  }
-
-  .jp-cell-toolbar {
-    top: -5px;
+  .jp-cell-menu.jp-cell-toolbar {
+    display: none;
   }
 }
 

@@ -21,7 +21,7 @@ import {
 import { IEditorServices } from '@jupyterlab/codeeditor';
 import {
   CommandToolbarButton,
-  IFormComponentRegistry,
+  IFormRendererRegistry,
   launchIcon,
   Toolbar
 } from '@jupyterlab/ui-components';
@@ -53,16 +53,19 @@ namespace CommandIDs {
   export const save = 'settingeditor:save';
 }
 
+type SettingEditorType = 'ui' | 'json';
+
 /**
  * The default setting editor extension.
  */
 const plugin: JupyterFrontEndPlugin<ISettingEditorTracker> = {
   id: '@jupyterlab/settingeditor-extension:form-ui',
+  description: 'Adds the interactive settings editor and provides its tracker.',
   requires: [
     ISettingRegistry,
     IStateDB,
     ITranslator,
-    IFormComponentRegistry,
+    IFormRendererRegistry,
     ILabStatus
   ],
   optional: [ILayoutRestorer, ICommandPalette, IJSONSettingEditorTracker],
@@ -79,7 +82,7 @@ function activate(
   registry: ISettingRegistry,
   state: IStateDB,
   translator: ITranslator,
-  editorRegistry: IFormComponentRegistry,
+  editorRegistry: IFormRendererRegistry,
   status: ILabStatus,
   restorer: ILayoutRestorer | null,
   palette: ICommandPalette | null,
@@ -101,63 +104,91 @@ function activate(
     });
   }
 
+  const openUi = async (args: { query: string }) => {
+    if (tracker.currentWidget && !tracker.currentWidget.isDisposed) {
+      if (!tracker.currentWidget.isAttached) {
+        shell.add(tracker.currentWidget, 'main', { type: 'Settings' });
+      }
+      shell.activateById(tracker.currentWidget.id);
+      return;
+    }
+
+    const key = plugin.id;
+
+    const { SettingsEditor } = await import('@jupyterlab/settingeditor');
+
+    const editor = new MainAreaWidget<SettingsEditor>({
+      content: new SettingsEditor({
+        editorRegistry,
+        key,
+        registry,
+        state,
+        commands,
+        toSkip: [
+          '@jupyterlab/application-extension:context-menu',
+          '@jupyterlab/mainmenu-extension:plugin'
+        ],
+        translator,
+        status,
+        query: args.query as string
+      })
+    });
+
+    if (jsonEditor) {
+      editor.toolbar.addItem('spacer', Toolbar.createSpacerItem());
+      editor.toolbar.addItem(
+        'open-json-editor',
+        new CommandToolbarButton({
+          commands,
+          id: CommandIDs.openJSON,
+          icon: launchIcon,
+          label: trans.__('JSON Settings Editor')
+        })
+      );
+    }
+
+    editor.id = namespace;
+    editor.title.icon = settingsIcon;
+    editor.title.label = trans.__('Settings');
+    editor.title.closable = true;
+
+    void tracker.add(editor);
+    shell.add(editor, 'main', { type: 'Settings' });
+  };
+
+  commands.addCommand(CommandIDs.open, {
+    execute: async (args: {
+      query?: string;
+      settingEditorType?: SettingEditorType;
+    }) => {
+      if (args.settingEditorType === 'ui') {
+        void commands.execute(CommandIDs.open, { query: args.query ?? '' });
+      } else if (args.settingEditorType === 'json') {
+        void commands.execute(CommandIDs.openJSON);
+      } else {
+        void registry.load(plugin.id).then(settings => {
+          (settings.get('settingEditorType').composite as SettingEditorType) ===
+          'json'
+            ? void commands.execute(CommandIDs.openJSON)
+            : void openUi({ query: args.query ?? '' });
+        });
+      }
+    },
+    label: args => {
+      if (args.label) {
+        return args.label as string;
+      }
+      return trans.__('Settings Editor');
+    }
+  });
+
   if (palette) {
     palette.addItem({
       category: trans.__('Settings'),
-      command: CommandIDs.open
+      command: CommandIDs.open,
+      args: { settingEditorType: 'ui' }
     });
   }
-
-  commands.addCommand(CommandIDs.open, {
-    execute: async () => {
-      if (tracker.currentWidget) {
-        shell.activateById(tracker.currentWidget.id);
-        return;
-      }
-
-      const key = plugin.id;
-
-      const { SettingsEditor } = await import('@jupyterlab/settingeditor');
-
-      const editor = new MainAreaWidget<SettingsEditor>({
-        content: new SettingsEditor({
-          editorRegistry,
-          key,
-          registry,
-          state,
-          commands,
-          toSkip: [
-            '@jupyterlab/application-extension:context-menu',
-            '@jupyterlab/mainmenu-extension:plugin'
-          ],
-          translator,
-          status
-        })
-      });
-
-      if (jsonEditor) {
-        editor.toolbar.addItem('spacer', Toolbar.createSpacerItem());
-        editor.toolbar.addItem(
-          'open-json-editor',
-          new CommandToolbarButton({
-            commands,
-            id: CommandIDs.openJSON,
-            icon: launchIcon,
-            label: trans.__('JSON Settings Editor')
-          })
-        );
-      }
-
-      editor.id = namespace;
-      editor.title.icon = settingsIcon;
-      editor.title.label = trans.__('Settings');
-      editor.title.closable = true;
-
-      void tracker.add(editor);
-      shell.add(editor);
-    },
-    label: trans.__('Settings Editor')
-  });
 
   return tracker;
 }
@@ -167,6 +198,7 @@ function activate(
  */
 const jsonPlugin: JupyterFrontEndPlugin<IJSONSettingEditorTracker> = {
   id: '@jupyterlab/settingeditor-extension:plugin',
+  description: 'Adds the JSON settings editor and provides its tracker.',
   requires: [
     ISettingRegistry,
     IEditorServices,
@@ -215,7 +247,12 @@ function activateJSON(
 
   commands.addCommand(CommandIDs.openJSON, {
     execute: async () => {
-      if (tracker.currentWidget) {
+      if (tracker.currentWidget && !tracker.currentWidget.isDisposed) {
+        if (!tracker.currentWidget.isAttached) {
+          shell.add(tracker.currentWidget, 'main', {
+            type: 'Advanced Settings'
+          });
+        }
         shell.activateById(tracker.currentWidget.id);
         return;
       }
@@ -273,7 +310,7 @@ function activateJSON(
       container.title.closable = true;
 
       void tracker.add(container);
-      shell.add(container);
+      shell.add(container, 'main', { type: 'Advanced Settings' });
     },
     label: trans.__('Advanced Settings Editor')
   });

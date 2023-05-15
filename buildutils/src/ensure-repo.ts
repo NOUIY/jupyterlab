@@ -44,9 +44,9 @@ const URL_CONFIG = {
 const MISSING: Dict<string[]> = {
   '@jupyterlab/coreutils': ['path'],
   '@jupyterlab/buildutils': ['path', 'webpack'],
-  '@jupyterlab/builder': ['path', 'crypto'],
-  '@jupyterlab/galata': ['fs', 'path'],
-  '@jupyterlab/testutils': ['fs', 'path'],
+  '@jupyterlab/builder': ['path'],
+  '@jupyterlab/galata': ['fs', 'path', '@jupyterlab/galata'],
+  '@jupyterlab/testing': ['fs', 'path'],
   '@jupyterlab/vega5-extension': ['vega-embed']
 };
 
@@ -54,7 +54,6 @@ const UNUSED: Dict<string[]> = {
   // url is a polyfill for sanitize-html
   '@jupyterlab/apputils': ['@types/react'],
   '@jupyterlab/application': ['@fortawesome/fontawesome-free'],
-  '@jupyterlab/apputils-extension': ['es6-promise'],
   '@jupyterlab/builder': [
     '@lumino/algorithm',
     '@lumino/application',
@@ -72,32 +71,53 @@ const UNUSED: Dict<string[]> = {
     // The libraries needed for building other extensions.
     '@babel/core',
     '@babel/preset-env',
-    'babel-loader',
     'css-loader',
-    'file-loader',
     'path-browserify',
     'process',
-    'raw-loader',
     'style-loader',
-    'svg-url-loader',
     'terser-webpack-plugin',
-    'to-string-loader',
-    'url-loader',
     'webpack-cli',
-    'worker-loader'
+    'worker-loader',
+    'source-map-loader'
   ],
-  '@jupyterlab/buildutils': ['verdaccio'],
+  '@jupyterlab/buildutils': ['inquirer', 'verdaccio'],
+  '@jupyterlab/codemirror': [
+    '@codemirror/lang-cpp',
+    '@codemirror/lang-css',
+    '@codemirror/lang-html',
+    '@codemirror/lang-java',
+    '@codemirror/lang-javascript',
+    '@codemirror/lang-json',
+    '@codemirror/lang-markdown',
+    '@codemirror/lang-php',
+    '@codemirror/lang-python',
+    '@codemirror/lang-rust',
+    '@codemirror/lang-sql',
+    '@codemirror/lang-wast',
+    '@codemirror/lang-xml',
+    '@codemirror/legacy-modes'
+  ],
+  '@jupyterlab/codemirror-extension': [
+    '@codemirror/lang-markdown',
+    '@codemirror/legacy-modes'
+  ],
   '@jupyterlab/coreutils': ['path-browserify'],
-  '@jupyterlab/galata': ['node-fetch', 'http-server'],
-  '@jupyterlab/services': ['node-fetch', 'ws'],
-  '@jupyterlab/rendermime': ['@jupyterlab/mathjax2'],
-  '@jupyterlab/testutils': [
+  '@jupyterlab/fileeditor': ['regexp-match-indices'],
+  '@jupyterlab/services': ['ws'],
+  '@jupyterlab/testing': [
+    '@babel/core',
+    '@babel/preset-env',
+    'fs-extra',
     'node-fetch',
     'identity-obj-proxy',
-    'jest-raw-loader',
-    'markdown-loader-jest',
-    'jest-junit',
-    'jest-summary-reporter'
+    'jest-environment-jsdom',
+    'jest-junit'
+  ],
+  '@jupyterlab/testutils': [
+    '@jupyterlab/application',
+    '@jupyterlab/apputils',
+    '@jupyterlab/notebook',
+    '@jupyterlab/rendermime'
   ],
   '@jupyterlab/test-csvviewer': ['csv-spectrum'],
   '@jupyterlab/vega5-extension': ['vega', 'vega-lite']
@@ -123,9 +143,7 @@ const SKIP_CSS: Dict<string[]> = {
     '@lumino/virtualdom',
     '@lumino/widgets'
   ],
-  '@jupyterlab/codemirror-extension': ['codemirror'],
   '@jupyterlab/completer': ['@jupyterlab/codeeditor'],
-  '@jupyterlab/debugger': ['codemirror'],
   '@jupyterlab/docmanager': ['@jupyterlab/statusbar'], // Statusbar styles should not be used by status reporters
   '@jupyterlab/docregistry': [
     '@jupyterlab/codeeditor', // Only used for model
@@ -137,12 +155,27 @@ const SKIP_CSS: Dict<string[]> = {
     '@jupyterlab/codeeditor',
     '@jupyterlab/codemirror',
     '@jupyterlab/fileeditor',
-    '@jupyterlab/notebook',
-    'codemirror'
+    '@jupyterlab/notebook'
   ],
   '@jupyterlab/filebrowser': ['@jupyterlab/statusbar'],
   '@jupyterlab/fileeditor': ['@jupyterlab/statusbar'],
+  '@jupyterlab/galata': [
+    '@jupyterlab/application',
+    '@jupyterlab/apputils',
+    '@jupyterlab/debugger',
+    '@jupyterlab/docmanager',
+    '@jupyterlab/notebook'
+  ],
+  '@jupyterlab/galata-extension': [
+    '@jupyterlab/application',
+    '@jupyterlab/apputils',
+    '@jupyterlab/cells',
+    '@jupyterlab/debugger',
+    '@jupyterlab/docmanager',
+    '@jupyterlab/notebook'
+  ],
   '@jupyterlab/help-extension': ['@jupyterlab/application'],
+  '@jupyterlab/lsp': ['codemirror'],
   '@jupyterlab/metapackage': [
     '@jupyterlab/ui-components',
     '@jupyterlab/apputils',
@@ -165,7 +198,6 @@ const SKIP_CSS: Dict<string[]> = {
     '@jupyterlab/notebook',
     '@jupyterlab/cell-toolbar',
     '@jupyterlab/cell-toolbar-extension',
-    '@jupyterlab/celltags',
     '@jupyterlab/celltags-extension',
     '@jupyterlab/fileeditor',
     '@jupyterlab/codemirror-extension',
@@ -176,12 +208,10 @@ const SKIP_CSS: Dict<string[]> = {
     '@jupyterlab/console-extension',
     '@jupyterlab/csvviewer',
     '@jupyterlab/documentsearch',
-    '@jupyterlab/docprovider',
     '@jupyterlab/csvviewer-extension',
     '@jupyterlab/debugger',
     '@jupyterlab/debugger-extension',
     '@jupyterlab/docmanager-extension',
-    '@jupyterlab/docprovider-extension',
     '@jupyterlab/documentsearch-extension',
     '@jupyterlab/extensionmanager',
     '@jupyterlab/extensionmanager-extension',
@@ -200,12 +230,15 @@ const SKIP_CSS: Dict<string[]> = {
     '@jupyterlab/launcher-extension',
     '@jupyterlab/logconsole',
     '@jupyterlab/logconsole-extension',
+    '@jupyterlab/lsp',
+    '@jupyterlab/lsp-extension',
     '@jupyterlab/mainmenu-extension',
     '@jupyterlab/markdownviewer',
     '@jupyterlab/markdownviewer-extension',
     '@jupyterlab/markedparser-extension',
-    '@jupyterlab/mathjax2',
-    '@jupyterlab/mathjax2-extension',
+    '@jupyterlab/mathjax-extension',
+    '@jupyterlab/metadataform',
+    '@jupyterlab/metadataform-extension',
     '@jupyterlab/nbconvert-css',
     '@jupyterlab/notebook-extension',
     '@jupyterlab/pdf-extension',
@@ -226,22 +259,17 @@ const SKIP_CSS: Dict<string[]> = {
     '@jupyterlab/tooltip-extension',
     '@jupyterlab/translation-extension',
     '@jupyterlab/ui-components-extension',
-    '@jupyterlab/user',
-    '@jupyterlab/user-extension',
-    '@jupyterlab/vdom',
-    '@jupyterlab/vdom-extension',
     '@jupyterlab/vega5-extension'
   ],
+  '@jupyterlab/notebook': ['@jupyterlab/application'],
   '@jupyterlab/rendermime-interfaces': ['@lumino/widgets'],
   '@jupyterlab/shortcuts-extension': ['@jupyterlab/application'],
   '@jupyterlab/testutils': [
+    '@jupyterlab/application',
     '@jupyterlab/apputils',
-    '@jupyterlab/codeeditor',
-    '@jupyterlab/codemirror',
+    '@jupyterlab/notebook',
     '@jupyterlab/rendermime',
-    '@jupyterlab/docregistry',
-    '@jupyterlab/cells',
-    '@jupyterlab/notebook'
+    '@jupyterlab/testing'
   ],
   '@jupyterlab/theme-light-extension': [
     '@jupyterlab/application',
@@ -290,7 +318,10 @@ function ensureBranch(): string[] {
     .trim()
     .split(/\r?\n/);
   files = files.filter(filePath => {
-    return fileTypes.indexOf(path.extname(filePath)) !== -1;
+    return (
+      fileTypes.indexOf(path.extname(filePath)) !== -1 &&
+      !filePath.endsWith('_static/switcher.json')
+    );
   });
 
   // Set up string replacements
@@ -376,7 +407,7 @@ function ensureMetaPackage(): string[] {
     let valid = true;
 
     // Ensure it is a dependency.
-    if (!mpData.dependencies[name]) {
+    if (!mpData.dependencies[name] && name !== '@jupyterlab/testing') {
       valid = false;
       mpData.dependencies[name] = '^' + data.version;
     }
@@ -549,7 +580,10 @@ function ensureJupyterlab(): string[] {
   const corePackage = utils.readJSONFile(corePath);
   const corePaths = utils.getCorePaths();
 
-  ensureCorePackage(corePackage, corePaths);
+  ensureCorePackage(
+    corePackage,
+    corePaths.filter(p => !/\/packages\/testing$/.test(p))
+  );
   corePackage.jupyterlab.mimeExtensions = {};
 
   const coreData = getCoreData(corePaths);
@@ -796,7 +830,8 @@ export async function ensureIntegrity(): Promise<boolean> {
   const tsConfigDocExclude = [
     'application-extension',
     'metapackage',
-    'nbconvert-css'
+    'nbconvert-css',
+    'testing'
   ];
   const tsConfigdocPath = path.resolve('.', 'tsconfigdoc.json');
   const tsConfigdocData = utils.readJSONFile(tsConfigdocPath);
@@ -804,7 +839,7 @@ export async function ensureIntegrity(): Promise<boolean> {
     .getCorePaths()
     .filter(pth => !tsConfigDocExclude.some(pkg => pth.includes(pkg)))
     .map(pth => {
-      return { path: './' + path.relative('.', pth).replace('\\/g', '/') };
+      return { path: './' + path.relative('.', pth).replace(/\\/g, '/') };
     });
   utils.writeJSONFile(tsConfigdocPath, tsConfigdocData);
 
@@ -853,7 +888,13 @@ export async function ensureIntegrity(): Promise<boolean> {
       );
       process.exit(1);
     }
-    utils.run('jlpm install');
+    try {
+      utils.run('jlpm install');
+    } catch (error) {
+      // Fallback in case this script is called during editable installation
+      utils.run(`node jupyterlab/staging/yarn.js install`);
+    }
+
     console.debug('\n\nMade integrity changes!');
     console.debug('Please commit the changes by running:');
     console.debug('git commit -a -m "Package integrity updates"');
@@ -865,5 +906,8 @@ export async function ensureIntegrity(): Promise<boolean> {
 }
 
 if (require.main === module) {
-  void ensureIntegrity();
+  void ensureIntegrity().catch(e => {
+    process.exitCode = 1;
+    console.error(e);
+  });
 }

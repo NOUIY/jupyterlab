@@ -3,20 +3,25 @@
 | Distributed under the terms of the Modified BSD License.
 |----------------------------------------------------------------------------*/
 
+import React from 'react';
+
 import { ReactWidget } from '@jupyterlab/apputils';
 import { ISettingRegistry, Settings } from '@jupyterlab/settingregistry';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
 import {
   classes,
   FilterBox,
+  IScore,
   LabIcon,
-  settingsIcon
+  settingsIcon,
+  updateFilterFunction
 } from '@jupyterlab/ui-components';
 import { StringExt } from '@lumino/algorithm';
 import { PartialJSONObject } from '@lumino/coreutils';
 import { Message } from '@lumino/messaging';
 import { ISignal, Signal } from '@lumino/signaling';
-import React from 'react';
+
+import type { SettingsEditor } from './settingseditor';
 
 /**
  * The JupyterLab plugin schema key for the setting editor
@@ -53,10 +58,13 @@ export class PluginList extends ReactWidget {
       this.update();
     }, this);
     this.mapPlugins = this.mapPlugins.bind(this);
-    this._filter = (item: ISettingRegistry.IPlugin) => null;
     this.setFilter = this.setFilter.bind(this);
+    this.setFilter(
+      options.query ? updateFilterFunction(options.query, false, false) : null
+    );
     this.setError = this.setError.bind(this);
     this._evtMousedown = this._evtMousedown.bind(this);
+    this._query = options.query ?? '';
 
     this._allPlugins = PluginList.sortPlugins(this.registry).filter(plugin => {
       const { schema } = plugin;
@@ -83,11 +91,11 @@ export class PluginList extends ReactWidget {
         )) as Settings;
         this._settings[plugin.id] = pluginSettings;
       }
+      this.update();
     };
     void loadSettings();
 
     this._errors = {};
-    this.selection = this._allPlugins[0].id;
   }
 
   /**
@@ -118,6 +126,10 @@ export class PluginList extends ReactWidget {
     return false;
   }
 
+  get filter(): SettingsEditor.PluginSearchFilter {
+    return this._filter;
+  }
+
   /**
    * The selection value of the plugin list.
    */
@@ -132,10 +144,7 @@ export class PluginList extends ReactWidget {
   /**
    * Signal that fires when search filter is updated so that settings panel can filter results.
    */
-  get updateFilterSignal(): ISignal<
-    this,
-    (plugin: ISettingRegistry.IPlugin) => string[] | null
-  > {
+  get updateFilterSignal(): ISignal<this, SettingsEditor.PluginSearchFilter> {
     return this._updateFilterSignal;
   }
 
@@ -234,7 +243,7 @@ export class PluginList extends ReactWidget {
    * @returns - String array of properties that match the search results.
    */
   getFilterString(
-    filter: (item: string) => boolean,
+    filter: (item: string) => Partial<IScore> | null,
     props: ISettingRegistry.IProperty,
     definitions?: any,
     ref?: string
@@ -312,18 +321,25 @@ export class PluginList extends ReactWidget {
    * Updates the filter when the search bar value changes.
    * @param filter Filter function passed by search bar based on search value.
    */
-  setFilter(filter: (item: string) => boolean, query?: string): void {
-    this._filter = (plugin: ISettingRegistry.IPlugin): string[] | null => {
-      if (filter(plugin.schema.title ?? '')) {
-        return null;
-      }
-      const filtered = this.getFilterString(
-        filter,
-        plugin.schema ?? {},
-        plugin.schema.definitions
-      );
-      return filtered;
-    };
+  setFilter(
+    filter: ((item: string) => Partial<IScore> | null) | null,
+    query?: string
+  ): void {
+    if (filter) {
+      this._filter = (plugin: ISettingRegistry.IPlugin): string[] | null => {
+        if (!filter || filter(plugin.schema.title ?? '')) {
+          return null;
+        }
+        const filtered = this.getFilterString(
+          filter,
+          plugin.schema ?? {},
+          plugin.schema.definitions
+        );
+        return filtered;
+      };
+    } else {
+      this._filter = null;
+    }
     this._query = query;
     this._updateFilterSignal.emit(this._filter);
     this.update();
@@ -362,20 +378,22 @@ export class PluginList extends ReactWidget {
     const icon = this.getHint(ICON_KEY, this.registry, plugin);
     const iconClass = this.getHint(ICON_CLASS_KEY, this.registry, plugin);
     const iconTitle = this.getHint(ICON_LABEL_KEY, this.registry, plugin);
-    const filteredProperties = this._filter(plugin)?.map(fieldValue => {
-      const highlightedIndices = StringExt.matchSumOfSquares(
-        fieldValue.toLocaleLowerCase(),
-        this._query?.toLocaleLowerCase() ?? ''
-      );
-      const highlighted = StringExt.highlight(
-        fieldValue,
-        highlightedIndices?.indices ?? [],
-        chunk => {
-          return <mark>{chunk}</mark>;
-        }
-      );
-      return <li key={`${id}-${fieldValue}`}> {highlighted} </li>;
-    });
+    const filteredProperties = this._filter
+      ? this._filter(plugin)?.map(fieldValue => {
+          const highlightedIndices = StringExt.matchSumOfSquares(
+            fieldValue.toLocaleLowerCase(),
+            this._query?.toLocaleLowerCase() ?? ''
+          );
+          const highlighted = StringExt.highlight(
+            fieldValue,
+            highlightedIndices?.indices ?? [],
+            chunk => {
+              return <mark>{chunk}</mark>;
+            }
+          );
+          return <li key={`${id}-${fieldValue}`}> {highlighted} </li>;
+        })
+      : undefined;
 
     return (
       <div
@@ -389,7 +407,7 @@ export class PluginList extends ReactWidget {
         key={id}
         title={itemTitle}
       >
-        <div className="jp-pluginList-entry-label" role="tab">
+        <div className="jp-PluginList-entry-label" role="tab">
           <div className="jp-SelectedIndicator" />
           <LabIcon.resolveReact
             icon={icon || (iconClass ? undefined : settingsIcon)}
@@ -398,7 +416,9 @@ export class PluginList extends ReactWidget {
             tag="span"
             stylesheet="settingsEditor"
           />
-          <span>{hightlightedTitle}</span>
+          <span className="jp-PluginList-entry-label-text">
+            {hightlightedTitle}
+          </span>
         </div>
         <ul>{filteredProperties}</ul>
       </div>
@@ -409,6 +429,9 @@ export class PluginList extends ReactWidget {
     const trans = this.translator.load('jupyterlab');
     // Filter all plugins based on search value before displaying list.
     const allPlugins = this._allPlugins.filter(plugin => {
+      if (!this._filter) {
+        return false;
+      }
       const filtered = this._filter(plugin);
       return filtered === null || filtered.length > 0;
     });
@@ -431,6 +454,7 @@ export class PluginList extends ReactWidget {
           placeholder={trans.__('Search…')}
           forceRefresh={false}
           caseSensitive={false}
+          initialQuery={this._query}
         />
         {modifiedItems.length > 0 && (
           <div>
@@ -456,12 +480,12 @@ export class PluginList extends ReactWidget {
   protected translator: ITranslator;
   private _changed = new Signal<this, void>(this);
   private _errors: { [id: string]: boolean };
-  private _filter: (item: ISettingRegistry.IPlugin) => string[] | null;
+  private _filter: SettingsEditor.PluginSearchFilter;
   private _query: string | undefined;
   private _handleSelectSignal = new Signal<this, string>(this);
   private _updateFilterSignal = new Signal<
     this,
-    (plugin: ISettingRegistry.IPlugin) => string[] | null
+    SettingsEditor.PluginSearchFilter
   >(this);
   private _allPlugins: ISettingRegistry.IPlugin[] = [];
   private _settings: { [id: string]: Settings } = {};
@@ -502,6 +526,11 @@ export namespace PluginList {
      * The setting registry for the plugin list.
      */
     translator?: ITranslator;
+
+    /**
+     * An optional initial query so the plugin list can filter on start.
+     */
+    query?: string;
   }
 
   /**

@@ -1,9 +1,14 @@
+/*
+ * Copyright (c) Jupyter Development Team.
+ * Distributed under the terms of the Modified BSD License.
+ */
+
 import { ILabStatus } from '@jupyterlab/application';
 import { showDialog } from '@jupyterlab/apputils';
 import { ISettingRegistry, Settings } from '@jupyterlab/settingregistry';
 import { IStateDB } from '@jupyterlab/statedb';
 import { ITranslator, nullTranslator } from '@jupyterlab/translation';
-import { IFormComponentRegistry, ReactWidget } from '@jupyterlab/ui-components';
+import { IFormRendererRegistry, ReactWidget } from '@jupyterlab/ui-components';
 import { CommandRegistry } from '@lumino/commands';
 import { IDisposable } from '@lumino/disposable';
 import { Message } from '@lumino/messaging';
@@ -28,7 +33,8 @@ export class SettingsEditor extends SplitPanel {
     const list = (this._list = new PluginList({
       registry: options.registry,
       toSkip: options.toSkip,
-      translator: this.translator
+      translator: this.translator,
+      query: options.query
     }));
     this.addWidget(list);
     this.setDirtyState = this.setDirtyState.bind(this);
@@ -64,9 +70,9 @@ export class SettingsEditor extends SplitPanel {
             updateFilterSignal={this._list.updateFilterSignal}
             updateDirtyState={this.setDirtyState}
             translator={this.translator}
+            initialFilter={this._list.filter}
           />
         );
-
         this.addWidget(settingsPanel);
       })
       .catch(reason => {
@@ -112,7 +118,7 @@ export class SettingsEditor extends SplitPanel {
   protected onCloseRequest(msg: Message): void {
     const trans = this.translator.load('jupyterlab');
     if (this._list.hasErrors) {
-      showDialog({
+      void showDialog({
         title: trans.__('Warning'),
         body: trans.__(
           'Unsaved changes due to validation error. Continue without saving?'
@@ -124,7 +130,7 @@ export class SettingsEditor extends SplitPanel {
         }
       });
     } else if (this._dirty) {
-      showDialog({
+      void showDialog({
         title: trans.__('Warning'),
         body: trans.__(
           'Some changes have not been saved. Continue without saving?'
@@ -156,13 +162,20 @@ export namespace SettingsEditor {
   export type SaveState = 'started' | 'failed' | 'completed';
 
   /**
+   *
+   */
+  export type PluginSearchFilter =
+    | ((plugin: ISettingRegistry.IPlugin) => string[] | null)
+    | null;
+
+  /**
    * Settings editor options
    */
   export interface IOptions {
     /**
      * Form component registry
      */
-    editorRegistry: IFormComponentRegistry;
+    editorRegistry: IFormRendererRegistry;
 
     /**
      * The state database key for the editor's state management.
@@ -198,5 +211,7 @@ export namespace SettingsEditor {
      * The application language translator.
      */
     translator?: ITranslator;
+
+    query?: string;
   }
 }

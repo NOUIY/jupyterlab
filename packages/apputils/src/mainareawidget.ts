@@ -24,7 +24,8 @@ const USE_CAPTURE = true;
  */
 export class MainAreaWidget<T extends Widget = Widget>
   extends Widget
-  implements Printing.IPrintable {
+  implements Printing.IPrintable
+{
   /**
    * Construct a new main area widget.
    *
@@ -66,7 +67,7 @@ export class MainAreaWidget<T extends Widget = Widget>
     if (!content.id) {
       content.id = DOMUtils.createDomID();
     }
-    content.node.tabIndex = 0;
+    content.node.tabIndex = -1;
 
     this._updateTitle();
     content.title.changed.connect(this._updateTitle, this);

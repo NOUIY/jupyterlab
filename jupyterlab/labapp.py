@@ -1,11 +1,12 @@
-# coding: utf-8
 """A tornado based Jupyter lab server."""
 
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 
+import dataclasses
 import json
 import os
+import sys
 
 from jupyter_core.application import JupyterApp, NoStart, base_aliases, base_flags
 from jupyter_server._version import version_info as jpserver_version_info
@@ -19,8 +20,7 @@ from jupyterlab_server import (
     WorkspaceListApp,
 )
 from notebook_shim.shim import NotebookConfigShimMixin
-from tornado import web
-from traitlets import Bool, Instance, Unicode, default
+from traitlets import Bool, Instance, Type, Unicode, default
 
 from ._version import __version__
 from .commands import (
@@ -42,14 +42,19 @@ from .commands import (
 )
 from .coreconfig import CoreConfig
 from .debuglog import DebugLogFileMixin
+from .extensions import MANAGERS as EXT_MANAGERS
+from .extensions.readonly import ReadOnlyExtensionManager
+from .handlers.announcements import (
+    CheckForUpdate,
+    CheckForUpdateABC,
+    CheckForUpdateHandler,
+    NewsHandler,
+    check_update_handler_path,
+    news_handler_path,
+)
 from .handlers.build_handler import Builder, BuildHandler, build_path
 from .handlers.error_handler import ErrorHandler
-from .handlers.extension_manager_handler import (
-    ExtensionHandler,
-    ExtensionManager,
-    extensions_handler_path,
-)
-from .handlers.yjs_echo_ws import ROOMS, YjsEchoWebSocket
+from .handlers.extension_manager_handler import ExtensionHandler, extensions_handler_path
 
 DEV_NOTE = """You're running JupyterLab from source.
 If you're working on the TypeScript sources of JupyterLab, try running
@@ -76,7 +81,10 @@ build_aliases["debug-log-path"] = "DebugLogFileMixin.debug_log_path"
 
 build_flags = dict(base_flags)
 
-build_flags["dev-build"] = ({"LabBuildApp": {"dev_build": True}}, "Build in development mode.")
+build_flags["dev-build"] = (
+    {"LabBuildApp": {"dev_build": True}},
+    "Build in development mode.",
+)
 build_flags["no-minimize"] = (
     {"LabBuildApp": {"minimize": False}},
     "Do not minimize a production build.",
@@ -90,9 +98,9 @@ build_flags["splice-source"] = (
 version = __version__
 app_version = get_app_version()
 if version != app_version:
-    version = "%s (dev), %s (app)" % (__version__, app_version)
+    version = f"{__version__} (dev), {app_version} (app)"
 
-buildFailureMsg = """Build failed.
+build_failure_msg = """Build failed.
 Troubleshooting: If the build failed due to an out-of-memory error, you
 may be able to fix it by disabling the `dev_build` and/or `minimize` options.
 
@@ -159,7 +167,9 @@ class LabBuildApp(JupyterApp, DebugLogFileMixin):
     )
 
     minimize = Bool(
-        True, config=True, help="Whether to minimize a production build (defaults to True)."
+        True,
+        config=True,
+        help="Whether to minimize a production build (defaults to True).",
     )
 
     pre_clean = Bool(
@@ -192,7 +202,7 @@ class LabBuildApp(JupyterApp, DebugLogFileMixin):
                     minimize=self.minimize,
                 )
             except Exception as e:
-                print(buildFailureMsg)
+                self.log.error(build_failure_msg)
                 raise e
 
 
@@ -206,8 +216,14 @@ clean_flags["extensions"] = (
     {"LabCleanApp": {"extensions": True}},
     "Also delete <app-dir>/extensions.\n%s" % ext_warn_msg,
 )
-clean_flags["settings"] = ({"LabCleanApp": {"settings": True}}, "Also delete <app-dir>/settings")
-clean_flags["static"] = ({"LabCleanApp": {"static": True}}, "Also delete <app-dir>/static")
+clean_flags["settings"] = (
+    {"LabCleanApp": {"settings": True}},
+    "Also delete <app-dir>/settings",
+)
+clean_flags["static"] = (
+    {"LabCleanApp": {"static": True}},
+    "Also delete <app-dir>/static",
+)
 clean_flags["all"] = (
     {"LabCleanApp": {"all": True}},
     "Delete the entire contents of the app directory.\n%s" % ext_warn_msg,
@@ -219,7 +235,7 @@ class LabCleanAppOptions(AppOptions):
     settings = Bool(False)
     staging = Bool(True)
     static = Bool(False)
-    all = Bool(False)
+    all = Bool(False)  # noqa
 
 
 class LabCleanApp(JupyterApp):
@@ -247,7 +263,7 @@ class LabCleanApp(JupyterApp):
 
     static = Bool(False, config=True, help="Also delete <app-dir>/static")
 
-    all = Bool(
+    all = Bool(  # noqa
         False,
         config=True,
         help="Delete the entire contents of the app directory.\n%s" % ext_warn_msg,
@@ -336,7 +352,7 @@ class LabWorkspaceApp(JupyterApp):
     def start(self):
         try:
             super().start()
-            print("One of `export`, `import` or `list` must be specified.")
+            self.log.error("One of `export`, `import` or `list` must be specified.")
             self.exit(1)
         except NoStart:
             pass
@@ -443,10 +459,17 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
     aliases["app-dir"] = "LabApp.app_dir"
 
     flags = flags
-    flags["core-mode"] = ({"LabApp": {"core_mode": True}}, "Start the app in core mode.")
+    flags["core-mode"] = (
+        {"LabApp": {"core_mode": True}},
+        "Start the app in core mode.",
+    )
     flags["dev-mode"] = (
         {"LabApp": {"dev_mode": True}},
         "Start the app in dev mode for running from source.",
+    )
+    flags["skip-dev-build"] = (
+        {"LabApp": {"skip_dev_build": True}},
+        "Skip the initial install and JS build of the app in dev mode.",
     )
     flags["watch"] = ({"LabApp": {"watch": True}}, "Start the app in watch mode.")
     flags["splice-source"] = (
@@ -455,8 +478,7 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
     )
     flags["expose-app-in-browser"] = (
         {"LabApp": {"expose_app_in_browser": True}},
-        """Expose the global app instance to browser via window.jupyterapp.
-        It is also available via the deprecated window.jupyterlab name.""",
+        "Expose the global app instance to browser via window.jupyterapp.",
     )
     flags["extensions-in-dev-mode"] = (
         {"LabApp": {"extensions_in_dev_mode": True}},
@@ -467,15 +489,15 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
         "Whether to enable collaborative mode.",
     )
 
-    subcommands = dict(
-        build=(LabBuildApp, LabBuildApp.description.splitlines()[0]),
-        clean=(LabCleanApp, LabCleanApp.description.splitlines()[0]),
-        path=(LabPathApp, LabPathApp.description.splitlines()[0]),
-        paths=(LabPathApp, LabPathApp.description.splitlines()[0]),
-        workspace=(LabWorkspaceApp, LabWorkspaceApp.description.splitlines()[0]),
-        workspaces=(LabWorkspaceApp, LabWorkspaceApp.description.splitlines()[0]),
-        licenses=(LabLicensesApp, LabLicensesApp.description.splitlines()[0]),
-    )
+    subcommands = {
+        "build": (LabBuildApp, LabBuildApp.description.splitlines()[0]),
+        "clean": (LabCleanApp, LabCleanApp.description.splitlines()[0]),
+        "path": (LabPathApp, LabPathApp.description.splitlines()[0]),
+        "paths": (LabPathApp, LabPathApp.description.splitlines()[0]),
+        "workspace": (LabWorkspaceApp, LabWorkspaceApp.description.splitlines()[0]),
+        "workspaces": (LabWorkspaceApp, LabWorkspaceApp.description.splitlines()[0]),
+        "licenses": (LabLicensesApp, LabLicensesApp.description.splitlines()[0]),
+    }
 
     default_url = Unicode("/lab", config=True, help="The default URL to redirect to from `/`")
 
@@ -484,7 +506,8 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
     )
 
     override_theme_url = Unicode(
-        config=True, help=("The override url for static lab theme assets, typically a CDN.")
+        config=True,
+        help=("The override url for static lab theme assets, typically a CDN."),
     )
 
     app_dir = Unicode(None, config=True, help="The app directory to launch JupyterLab from.")
@@ -526,17 +549,45 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
         against published packages may not work correctly.""",
     )
 
+    extension_manager = Unicode(
+        "pypi",
+        config=True,
+        help="""The extension manager factory to use. The default options are:
+        "readonly" for a manager without installation capability or "pypi" for
+        a manager using PyPi.org and pip to install extensions.""",
+    )
+
     watch = Bool(False, config=True, help="Whether to serve the app in watch mode")
+
+    skip_dev_build = Bool(
+        False,
+        config=True,
+        help="Whether to skip the initial install and JS build of the app in dev mode",
+    )
 
     splice_source = Bool(False, config=True, help="Splice source packages into app directory.")
 
     expose_app_in_browser = Bool(
         False,
         config=True,
-        help="Whether to expose the global app instance to browser via window.jupyterlab",
+        help="Whether to expose the global app instance to browser via window.jupyterapp",
     )
 
     collaborative = Bool(False, config=True, help="Whether to enable collaborative mode.")
+
+    news_url = Unicode(
+        "https://jupyterlab.github.io/assets/feed.xml",
+        allow_none=True,
+        help="""URL that serves news Atom feed; by default the JupyterLab organization announcements will be fetched. Set to None to turn off fetching announcements.""",
+        config=True,
+    )
+
+    check_for_updates_class = Type(
+        default_value=CheckForUpdate,
+        klass=CheckForUpdateABC,
+        config=True,
+        help="""A callable class that receives the current version at instantiation and calling it must return asynchronously a string indicating which version is available and how to install or None if no update is available. The string supports Markdown format.""",
+    )
 
     @default("app_dir")
     def _default_app_dir(self):
@@ -582,7 +633,7 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
         if self.override_static_url:
             return self.override_static_url
         else:
-            static_url = "/static/{name}/".format(name=self.name)
+            static_url = f"/static/{self.name}/"
             return ujoin(self.serverapp.base_url, static_url)
 
     @default("theme_url")
@@ -615,8 +666,18 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
             self.static_paths = [dev_static_dir]
             self.template_paths = [dev_static_dir]
             if not self.extensions_in_dev_mode:
-                self.labextensions_path = []
-                self.extra_labextensions_path = []
+                # Add an exception for @jupyterlab/galata-extension
+                galata_extension = pjoin(HERE, "galata")
+                self.labextensions_path = (
+                    [galata_extension]
+                    if galata_extension in map(os.path.abspath, self.labextensions_path)
+                    else []
+                )
+                self.extra_labextensions_path = (
+                    [galata_extension]
+                    if galata_extension in map(os.path.abspath, self.extra_labextensions_path)
+                    else []
+                )
         elif self.core_mode:
             dev_static_dir = ujoin(HERE, "static")
             self.static_paths = [dev_static_dir]
@@ -627,35 +688,7 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
             self.static_paths = [self.static_dir]
             self.template_paths = [self.templates_dir]
 
-    def initialize_settings(self):
-        def hook(model, path, **kwargs):
-            if "type" in model and model["type"] == "directory":
-                pass
-            elif "content" in model and model["content"] is not None:
-                # content sent through HTTP, it must not be an RTC session
-                if path in ROOMS:
-                    raise web.HTTPError(
-                        409,
-                        "Document content cannot be present both in RTC session and HTTP request",
-                    )
-                # keep the content sent through HTTP
-            else:
-                # no content sent through HTTP, it must be an RTC session
-                if path in ROOMS:
-                    # we found the RTC session as expected
-                    # set the document content from y-py
-                    model["content"] = ROOMS[path].get_source()
-                else:
-                    # RTC session not available, shouldn't happen
-                    raise web.HTTPError(
-                        410, "Could not find an RTC session corresponding to this document"
-                    )
-
-        self.serverapp.contents_manager.register_pre_save_hook(hook)
-        super().initialize_settings()
-
-    def initialize_handlers(self):
-
+    def initialize_handlers(self):  # noqa
         handlers = []
 
         # Set config for Jupyterlab
@@ -666,7 +699,6 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
         page_config["token"] = self.serverapp.token
         page_config["exposeAppInBrowser"] = self.expose_app_in_browser
         page_config["quitButton"] = self.serverapp.quit_button
-        page_config["collaborative"] = self.collaborative
         page_config["allow_hidden_files"] = self.serverapp.contents_manager.allow_hidden
 
         # Client-side code assumes notebookVersion is a JSON-encoded string
@@ -685,17 +717,13 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
         build_handler = (build_path, BuildHandler, {"builder": builder})
         handlers.append(build_handler)
 
-        # Yjs Echo WebSocket handler
-        yjs_echo_handler = (r"/api/yjs/(.*)", YjsEchoWebSocket)
-        handlers.append(yjs_echo_handler)
-
         errored = False
 
         if self.core_mode:
             self.log.info(CORE_NOTE.strip())
             ensure_core(self.log)
         elif self.dev_mode:
-            if not self.watch:
+            if not (self.watch or self.skip_dev_build):
                 ensure_dev(self.log)
                 self.log.info(DEV_NOTE)
         else:
@@ -718,9 +746,82 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
             self.cache_files = False
 
         if not self.core_mode and not errored:
-            ext_manager = ExtensionManager(app_options=build_handler_options)
-            ext_handler = (extensions_handler_path, ExtensionHandler, {"manager": ext_manager})
+            # Add extension management handlers
+            provider = self.extension_manager
+            entry_point = EXT_MANAGERS.get(provider)
+            if entry_point is None:
+                self.log.error(f"Extension Manager: No manager defined for provider '{provider}'.")
+                raise NotImplementedError()
+            else:
+                self.log.info(f"Extension Manager is '{provider}'.")
+            manager_factory = entry_point.load()
+            config = self.settings.get("config", {}).get("LabServerApp", {})
+
+            blocked_extensions_uris = config.get("blocked_extensions_uris", "")
+            allowed_extensions_uris = config.get("allowed_extensions_uris", "")
+
+            if (blocked_extensions_uris) and (allowed_extensions_uris):
+                self.log.error(
+                    "Simultaneous LabServerApp.blocked_extensions_uris and LabServerApp.allowed_extensions_uris is not supported. Please define only one of those."
+                )
+                import sys
+
+                sys.exit(-1)
+
+            listings_config = {
+                "blocked_extensions_uris": set(
+                    filter(lambda uri: len(uri) > 0, blocked_extensions_uris.split(","))
+                ),
+                "allowed_extensions_uris": set(
+                    filter(lambda uri: len(uri) > 0, allowed_extensions_uris.split(","))
+                ),
+                "listings_refresh_seconds": config.get("listings_refresh_seconds", 60 * 60),
+                "listings_tornado_options": config.get("listings_tornado_options", {}),
+            }
+            if len(listings_config["blocked_extensions_uris"]) or len(
+                listings_config["allowed_extensions_uris"]
+            ):
+                self.log.debug(f"Extension manager will be constrained by {listings_config}")
+
+            try:
+                ext_manager = manager_factory(build_handler_options, listings_config, self)
+                metadata = dataclasses.asdict(ext_manager.metadata)
+            except Exception as err:
+                self.log.warning(
+                    f"Failed to instantiate the extension manager {provider}. Falling back to read-only manager.",
+                    exc_info=err,
+                )
+                ext_manager = ReadOnlyExtensionManager(build_handler_options, listings_config, self)
+                metadata = dataclasses.asdict(ext_manager.metadata)
+
+            page_config["extensionManager"] = metadata
+            ext_handler = (
+                extensions_handler_path,
+                ExtensionHandler,
+                {"manager": ext_manager},
+            )
             handlers.append(ext_handler)
+
+            # Add announcement handlers
+            page_config["news"] = {"disabled": self.news_url is None}
+            handlers.extend(
+                [
+                    (
+                        check_update_handler_path,
+                        CheckForUpdateHandler,
+                        {
+                            "update_checker": self.check_for_updates_class(__version__),
+                        },
+                    ),
+                    (
+                        news_handler_path,
+                        NewsHandler,
+                        {
+                            "news_url": self.news_url,
+                        },
+                    ),
+                ]
+            )
 
         # If running under JupyterHub, add more metadata.
         if "hub_prefix" in self.serverapp.tornado_settings:
@@ -733,8 +834,11 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
             # Assume the server_name property indicates running JupyterHub 1.0.
             if hasattr(self.serverapp, "server_name"):
                 page_config["hubServerName"] = self.serverapp.server_name
-            api_token = os.getenv("JUPYTERHUB_API_TOKEN", "")
-            page_config["token"] = api_token
+            # avoid setting API token in page config
+            # $JUPYTERHUB_API_TOKEN identifies the server, not the client
+            # but at least make sure we don't use the token
+            # if the serverapp set one
+            page_config["token"] = ""
 
         # Update Jupyter Server's webapp settings with jupyterlab settings.
         self.serverapp.web_app.settings["page_config_data"] = page_config
@@ -746,6 +850,19 @@ class LabApp(NotebookConfigShimMixin, LabServerApp):
     def initialize(self, argv=None):
         """Subclass because the ExtensionApp.initialize() method does not take arguments"""
         super().initialize()
+        if self.collaborative:
+            try:
+                import jupyter_collaboration  # noqa
+            except ImportError:
+                self.log.critical(
+                    """
+To enable real-time collaboration, you must install the extension `jupyter_collaboration`.
+You can install it using pip for example:
+
+  python -m pip install jupyter_collaboration
+"""
+                )
+                sys.exit(1)
 
 
 # -----------------------------------------------------------------------------

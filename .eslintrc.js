@@ -7,20 +7,45 @@ module.exports = {
     'jest/globals': true
   },
   globals: {
+    BigInt: 'readonly',
+    HTMLCollectionOf: 'readonly',
     JSX: 'readonly',
-    NodeJS: 'readonly'
+    NodeJS: 'readonly',
+    RequestInit: 'readonly',
+    RequestInfo: 'readonly',
+    ScrollLogicalPosition: 'readonly'
   },
   root: true,
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/eslint-recommended',
     'plugin:@typescript-eslint/recommended',
-    'prettier/@typescript-eslint',
-    'plugin:react/recommended',
-    'plugin:jest/recommended'
+    'prettier',
+    'plugin:react/recommended'
   ],
   parser: '@typescript-eslint/parser',
-  plugins: ['@typescript-eslint', 'jest'],
+  parserOptions: {
+    ecmaVersion: 'ES2018',
+    project: ['./tsconfig.eslint.json']
+  },
+  plugins: ['@typescript-eslint'],
+  overrides: [
+    {
+      files: ['packages/**/*.spec.ts', 'testutils/**/*.spec.ts'],
+      plugins: ['jest'],
+      extends: ['plugin:jest/recommended'],
+      rules: {
+        'jest/no-conditional-expect': 'warn',
+        'jest/valid-title': 'warn',
+        'jest/no-standalone-expect': [
+          'error',
+          {
+            additionalTestBlockFunctions: ['it']
+          }
+        ]
+      }
+    }
+  ],
   rules: {
     '@typescript-eslint/naming-convention': [
       'error',
@@ -47,15 +72,14 @@ module.exports = {
     '@typescript-eslint/no-empty-interface': 'off',
     '@typescript-eslint/triple-slash-reference': 'warn',
     '@typescript-eslint/no-inferrable-types': 'off',
-    'jest/no-conditional-expect': 'warn',
-    'jest/valid-title': 'warn',
     camelcase: [
-      'warn',
+      'error',
       {
         allow: [
           '__webpack_public_path__',
           '__webpack_share_scopes__',
           '__webpack_init_sharing__',
+          '_jupyter_types_experimental',
           'allow_stdin',
           'allowed_extensions',
           'allowed_extensions_uris',
@@ -63,6 +87,7 @@ module.exports = {
           'blocked_extensions_uris',
           'bundles_extension',
           'cell_type',
+          'check_update',
           'clear_output',
           'codemirror_mode',
           'comm_close',
@@ -88,8 +113,10 @@ module.exports = {
           'file_extension',
           'help_links',
           'hist_access_type',
+          'ids_only',
           'implementation_version',
           'installed_version',
+          'is_allowed',
           'jlab_core',
           'jupyterlab_extensions',
           'jupyterlab_mime_extensions',
@@ -109,6 +136,7 @@ module.exports = {
           'output_type',
           'outputs_hidden',
           'parent_header',
+          'per_page',
           'pf_re',
           'pkg_type',
           'protocol_version',

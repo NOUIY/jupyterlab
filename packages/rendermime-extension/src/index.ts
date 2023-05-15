@@ -16,6 +16,7 @@ import { IDocumentManager } from '@jupyterlab/docmanager';
 import {
   ILatexTypesetter,
   IMarkdownParser,
+  IRenderMime,
   IRenderMimeRegistry,
   RenderMimeRegistry,
   standardRendererFactories
@@ -31,6 +32,7 @@ namespace CommandIDs {
  */
 const plugin: JupyterFrontEndPlugin<IRenderMimeRegistry> = {
   id: '@jupyterlab/rendermime-extension:plugin',
+  description: 'Provides the render mime registry.',
   optional: [
     IDocumentManager,
     ILatexTypesetter,
@@ -55,7 +57,7 @@ function activate(
   app: JupyterFrontEnd,
   docManager: IDocumentManager | null,
   latexTypesetter: ILatexTypesetter | null,
-  sanitizer: ISanitizer | null,
+  sanitizer: IRenderMime.ISanitizer | null,
   markdownParser: IMarkdownParser | null,
   translator: ITranslator | null
 ): RenderMimeRegistry {
@@ -75,9 +77,8 @@ function activate(
           .then(() => {
             // Open the link with the default rendered widget factory,
             // if applicable.
-            const factory = docManager.registry.defaultRenderedWidgetFactory(
-              path
-            );
+            const factory =
+              docManager.registry.defaultRenderedWidgetFactory(path);
             const widget = docManager.openOrReveal(path, factory.name);
 
             // Handle the hash if one has been provided.

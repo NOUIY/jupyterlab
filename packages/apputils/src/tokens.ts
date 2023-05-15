@@ -2,6 +2,7 @@
 // Distributed under the terms of the Modified BSD License.
 
 import { IChangedArgs } from '@jupyterlab/coreutils';
+import { IRenderMime } from '@jupyterlab/rendermime-interfaces';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import { Token } from '@lumino/coreutils';
 import { IDisposable } from '@lumino/disposable';
@@ -13,7 +14,9 @@ import { ISessionContext } from './sessioncontext';
  * The command palette token.
  */
 export const ICommandPalette = new Token<ICommandPalette>(
-  '@jupyterlab/apputils:ICommandPalette'
+  '@jupyterlab/apputils:ICommandPalette',
+  `A service for the application command palette
+  in the left panel. Use this to add commands to the palette.`
 );
 
 /**
@@ -45,8 +48,12 @@ export interface ICommandPalette {
   addItem(options: IPaletteItem): IDisposable;
 }
 
+/**
+ * The kernel status indicator model.
+ */
 export const IKernelStatusModel = new Token<IKernelStatusModel>(
-  '@jupyterlab/apputils:IKernelStatusModel'
+  '@jupyterlab/apputils:IKernelStatusModel',
+  'A service to register kernel session provider to the kernel status indicator.'
 );
 
 /**
@@ -73,14 +80,16 @@ export interface ISessionContextDialogs extends ISessionContext.IDialogs {}
  * The session context dialogs token.
  */
 export const ISessionContextDialogs = new Token<ISessionContext.IDialogs>(
-  '@jupyterlab/apputils:ISessionContextDialogs'
+  '@jupyterlab/apputils:ISessionContextDialogs',
+  'A service for handling the session dialogs.'
 );
 
 /**
  * The theme manager token.
  */
 export const IThemeManager = new Token<IThemeManager>(
-  '@jupyterlab/apputils:IThemeManager'
+  '@jupyterlab/apputils:IThemeManager',
+  'A service for the theme manager for the application. This is used primarily in theme extensions to register new themes.'
 );
 
 /**
@@ -190,22 +199,15 @@ export namespace IThemeManager {
 /**
  * The sanitizer token.
  */
-export const ISanitizer = new Token<ISanitizer>(
-  '@jupyterlab/apputils:ISanitizer'
+export const ISanitizer = new Token<IRenderMime.ISanitizer>(
+  '@jupyterlab/apputils:ISanitizer',
+  'A service for sanitizing HTML strings.'
 );
 
-export interface ISanitizer {
-  /**
-   * Sanitize an HTML string.
-   *
-   * @param dirty - The dirty text.
-   *
-   * @param options - The optional sanitization options.
-   *
-   * @returns The sanitized string.
-   */
-  sanitize(dirty: string, options?: ISanitizer.IOptions): string;
-}
+/**
+ * @deprecated since v4 use {@link IRenderMime.ISanitizer}
+ */
+export type ISanitizer = IRenderMime.ISanitizer;
 
 /**
  * The namespace for `ISanitizer` related interfaces.
@@ -213,30 +215,19 @@ export interface ISanitizer {
 export namespace ISanitizer {
   /**
    * The options used to sanitize.
+   *
+   * @deprecated in v4 use {@link IRenderMime.ISanitizerOptions}
    */
-  export interface IOptions {
-    /**
-     * The allowed tags.
-     */
-    allowedTags?: string[];
-
-    /**
-     * The allowed attributes for a given tag.
-     */
-    allowedAttributes?: { [key: string]: string[] };
-
-    /**
-     * The allowed style values for a given tag.
-     */
-    allowedStyles?: { [key: string]: { [key: string]: RegExp[] } };
-  }
+  export type IOptions = IRenderMime.ISanitizerOptions;
 }
 
 /**
  * The main menu token.
  */
 export const ISplashScreen = new Token<ISplashScreen>(
-  '@jupyterlab/apputils:ISplashScreen'
+  '@jupyterlab/apputils:ISplashScreen',
+  `A service for the splash screen for the application.
+  Use this if you want to show the splash screen for your own purposes.`
 );
 
 /**
@@ -257,7 +248,10 @@ export interface ISplashScreen {
  * The default window resolver token.
  */
 export const IWindowResolver = new Token<IWindowResolver>(
-  '@jupyterlab/apputils:IWindowResolver'
+  '@jupyterlab/apputils:IWindowResolver',
+  `A service for a window resolver for the
+  application. JupyterLab workspaces are given a name, which are determined using
+  the window resolver. Require this if you want to use the name of the current workspace.`
 );
 
 /**
@@ -277,16 +271,7 @@ export namespace ToolbarRegistry {
   /**
    * Interface of item to be inserted in a toolbar
    */
-  export interface IToolbarItem {
-    /**
-     * Unique item name
-     */
-    name: string;
-    /**
-     * Toolbar widget
-     */
-    widget: Widget;
-  }
+  export interface IToolbarItem extends IRenderMime.IToolbarItem {}
 
   /**
    * Interface describing a toolbar item widget
@@ -319,6 +304,20 @@ export namespace ToolbarRegistry {
  */
 export interface IToolbarWidgetRegistry {
   /**
+   * Add a new toolbar item factory
+   *
+   * @param widgetFactory The widget factory name that creates the toolbar
+   * @param toolbarItemName The unique toolbar item
+   * @param factory The factory function that receives the widget containing the toolbar and returns the toolbar widget.
+   * @returns The previously defined factory
+   */
+  addFactory<T extends Widget = Widget>(
+    widgetFactory: string,
+    toolbarItemName: string,
+    factory: (main: T) => Widget
+  ): ((main: T) => Widget) | undefined;
+
+  /**
    * Default toolbar item factory
    */
   defaultFactory: (
@@ -348,17 +347,26 @@ export interface IToolbarWidgetRegistry {
    * @param toolbarItemName The unique toolbar item
    * @param factory The factory function that receives the widget containing the toolbar and returns the toolbar widget.
    * @returns The previously defined factory
+   *
+   * @deprecated since v4 use `addFactory` instead
    */
   registerFactory<T extends Widget = Widget>(
     widgetFactory: string,
     toolbarItemName: string,
     factory: (main: T) => Widget
   ): ((main: T) => Widget) | undefined;
+
+  /**
+   * A signal emitted when a factory widget has been added.
+   */
+  readonly factoryAdded: ISignal<this, string>;
 }
 
 /**
  * The toolbar registry token.
  */
 export const IToolbarWidgetRegistry = new Token<IToolbarWidgetRegistry>(
-  '@jupyterlab/apputils:IToolbarWidgetRegistry'
+  '@jupyterlab/apputils:IToolbarWidgetRegistry',
+  `A registry for toolbar widgets. Require this
+  if you want to build the toolbar dynamically from a data definition (stored in settings for example).`
 );

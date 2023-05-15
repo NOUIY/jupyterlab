@@ -15,9 +15,11 @@ import {
   Dialog,
   ICommandPalette,
   IKernelStatusModel,
+  ISanitizer,
   ISessionContext,
   ISessionContextDialogs,
-  sessionContextDialogs,
+  Sanitizer,
+  SessionContextDialogs,
   showDialog,
   WidgetTracker
 } from '@jupyterlab/apputils';
@@ -28,13 +30,13 @@ import {
 } from '@jupyterlab/codeeditor';
 import { ICompletionProviderManager } from '@jupyterlab/completer';
 import { ConsolePanel, IConsoleTracker } from '@jupyterlab/console';
-import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
+import { IDefaultFileBrowser } from '@jupyterlab/filebrowser';
 import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
-import { IRenderMimeRegistry } from '@jupyterlab/rendermime';
+import { IRenderMime, IRenderMimeRegistry } from '@jupyterlab/rendermime';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
-import { ITranslator } from '@jupyterlab/translation';
-import { consoleIcon } from '@jupyterlab/ui-components';
+import { ITranslator, nullTranslator } from '@jupyterlab/translation';
+import { consoleIcon, IFormRendererRegistry } from '@jupyterlab/ui-components';
 import { find } from '@lumino/algorithm';
 import {
   JSONExt,
@@ -97,22 +99,24 @@ namespace CommandIDs {
  */
 const tracker: JupyterFrontEndPlugin<IConsoleTracker> = {
   id: '@jupyterlab/console-extension:tracker',
+  description: 'Provides the console widget tracker.',
   provides: IConsoleTracker,
   requires: [
     ConsolePanel.IContentFactory,
     IEditorServices,
     IRenderMimeRegistry,
-    ISettingRegistry,
-    ITranslator
+    ISettingRegistry
   ],
   optional: [
     ILayoutRestorer,
-    IFileBrowserFactory,
+    IDefaultFileBrowser,
     IMainMenu,
     ICommandPalette,
     ILauncher,
     ILabStatus,
-    ISessionContextDialogs
+    ISessionContextDialogs,
+    IFormRendererRegistry,
+    ITranslator
   ],
   activate: activateConsole,
   autoStart: true
@@ -123,6 +127,7 @@ const tracker: JupyterFrontEndPlugin<IConsoleTracker> = {
  */
 const factory: JupyterFrontEndPlugin<ConsolePanel.IContentFactory> = {
   id: '@jupyterlab/console-extension:factory',
+  description: 'Provides the console widget content factory.',
   provides: ConsolePanel.IContentFactory,
   requires: [IEditorServices],
   autoStart: true,
@@ -137,6 +142,7 @@ const factory: JupyterFrontEndPlugin<ConsolePanel.IContentFactory> = {
  */
 const kernelStatus: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/console-extension:kernel-status',
+  description: 'Adds the console to the kernel status indicator model.',
   autoStart: true,
   requires: [IConsoleTracker, IKernelStatusModel],
   activate: (
@@ -163,6 +169,7 @@ const kernelStatus: JupyterFrontEndPlugin<void> = {
  */
 const lineColStatus: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/console-extension:cursor-position',
+  description: 'Adds the console to the code editor cursor position model.',
   autoStart: true,
   requires: [IConsoleTracker, IPositionModel],
   activate: (
@@ -172,7 +179,7 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
   ) => {
     let previousWidget: ConsolePanel | null = null;
 
-    const provider = (widget: Widget | null) => {
+    const provider = async (widget: Widget | null) => {
       let editor: CodeEditor.IEditor | null = null;
       if (widget !== previousWidget) {
         previousWidget?.console.promptCellCreated.disconnect(
@@ -184,11 +191,21 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
           (widget as ConsolePanel).console.promptCellCreated.connect(
             positionModel.update
           );
-          editor = (widget as ConsolePanel).console.promptCell?.editor ?? null;
+          const promptCell = (widget as ConsolePanel).console.promptCell;
+          editor = null;
+          if (promptCell) {
+            await promptCell.ready;
+            editor = promptCell.editor;
+          }
           previousWidget = widget as ConsolePanel;
         }
       } else if (widget) {
-        editor = (widget as ConsolePanel).console.promptCell?.editor ?? null;
+        const promptCell = (widget as ConsolePanel).console.promptCell;
+        editor = null;
+        if (promptCell) {
+          await promptCell.ready;
+          editor = promptCell.editor;
+        }
       }
       return editor;
     };
@@ -199,9 +216,10 @@ const lineColStatus: JupyterFrontEndPlugin<void> = {
 
 const completerPlugin: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/console-extension:completer',
+  description: 'Adds completion to the console.',
   autoStart: true,
   requires: [IConsoleTracker],
-  optional: [ICompletionProviderManager],
+  optional: [ICompletionProviderManager, ITranslator, ISanitizer],
   activate: activateConsoleCompleterService
 };
 
@@ -227,20 +245,23 @@ async function activateConsole(
   editorServices: IEditorServices,
   rendermime: IRenderMimeRegistry,
   settingRegistry: ISettingRegistry,
-  translator: ITranslator,
   restorer: ILayoutRestorer | null,
-  browserFactory: IFileBrowserFactory | null,
+  filebrowser: IDefaultFileBrowser | null,
   mainMenu: IMainMenu | null,
   palette: ICommandPalette | null,
   launcher: ILauncher | null,
   status: ILabStatus | null,
-  sessionDialogs: ISessionContextDialogs | null
+  sessionDialogs_: ISessionContextDialogs | null,
+  formRegistry: IFormRendererRegistry | null,
+  translator_: ITranslator | null
 ): Promise<IConsoleTracker> {
+  const translator = translator_ ?? nullTranslator;
   const trans = translator.load('jupyterlab');
   const manager = app.serviceManager;
   const { commands, shell } = app;
   const category = trans.__('Console');
-  sessionDialogs = sessionDialogs ?? sessionContextDialogs;
+  const sessionDialogs =
+    sessionDialogs_ ?? new SessionContextDialogs({ translator });
 
   // Create a widget tracker for all console panels.
   const tracker = new WidgetTracker<ConsolePanel>({
@@ -281,7 +302,8 @@ async function activateConsole(
         for (const name in specs.kernelspecs) {
           const rank = name === specs.default ? 0 : Infinity;
           const spec = specs.kernelspecs[name]!;
-          let kernelIconUrl = spec.resources['logo-64x64'];
+          const kernelIconUrl =
+            spec.resources['logo-svg'] || spec.resources['logo-64x64'];
           disposables.add(
             launcher.add({
               command: CommandIDs.create,
@@ -326,6 +348,15 @@ async function activateConsole(
      * to the main area relative to a reference widget.
      */
     insertMode?: DockLayout.InsertMode;
+
+    /**
+     * Type of widget to open
+     *
+     * #### Notes
+     * This is the key used to load user layout customization.
+     * Its typical value is: a factory name or the widget id (if singleton)
+     */
+    type?: string;
   }
 
   /**
@@ -339,6 +370,7 @@ async function activateConsole(
       contentFactory,
       mimeTypeService: editorServices.mimeTypeService,
       rendermime,
+      sessionDialogs,
       translator,
       setBusy: (status && (() => status.setBusy())) ?? undefined,
       ...(options as Partial<ConsolePanel.IOptions>)
@@ -362,99 +394,15 @@ async function activateConsole(
     shell.add(panel, 'main', {
       ref: options.ref,
       mode: options.insertMode,
-      activate: options.activate !== false
+      activate: options.activate !== false,
+      type: options.type ?? 'Console'
     });
     return panel;
   }
 
-  type lineWrap_type = 'off' | 'on' | 'wordWrapColumn' | 'bounded';
-
-  const mapOption = (
-    editor: CodeEditor.IEditor,
-    config: JSONObject,
-    option: string
-  ) => {
-    if (config[option] === undefined) {
-      return;
-    }
-    switch (option) {
-      case 'autoClosingBrackets':
-        editor.setOption(
-          'autoClosingBrackets',
-          config['autoClosingBrackets'] as boolean
-        );
-        break;
-      case 'cursorBlinkRate':
-        editor.setOption(
-          'cursorBlinkRate',
-          config['cursorBlinkRate'] as number
-        );
-        break;
-      case 'fontFamily':
-        editor.setOption('fontFamily', config['fontFamily'] as string | null);
-        break;
-      case 'fontSize':
-        editor.setOption('fontSize', config['fontSize'] as number | null);
-        break;
-      case 'lineHeight':
-        editor.setOption('lineHeight', config['lineHeight'] as number | null);
-        break;
-      case 'lineNumbers':
-        editor.setOption('lineNumbers', config['lineNumbers'] as boolean);
-        break;
-      case 'lineWrap':
-        editor.setOption('lineWrap', config['lineWrap'] as lineWrap_type);
-        break;
-      case 'matchBrackets':
-        editor.setOption('matchBrackets', config['matchBrackets'] as boolean);
-        break;
-      case 'readOnly':
-        editor.setOption('readOnly', config['readOnly'] as boolean);
-        break;
-      case 'insertSpaces':
-        editor.setOption('insertSpaces', config['insertSpaces'] as boolean);
-        break;
-      case 'tabSize':
-        editor.setOption('tabSize', config['tabSize'] as number);
-        break;
-      case 'wordWrapColumn':
-        editor.setOption('wordWrapColumn', config['wordWrapColumn'] as number);
-        break;
-      case 'rulers':
-        editor.setOption('rulers', config['rulers'] as number[]);
-        break;
-      case 'codeFolding':
-        editor.setOption('codeFolding', config['codeFolding'] as boolean);
-        break;
-    }
-  };
-
-  const setOption = (
-    editor: CodeEditor.IEditor | undefined,
-    config: JSONObject
-  ) => {
-    if (editor === undefined) {
-      return;
-    }
-    mapOption(editor, config, 'autoClosingBrackets');
-    mapOption(editor, config, 'cursorBlinkRate');
-    mapOption(editor, config, 'fontFamily');
-    mapOption(editor, config, 'fontSize');
-    mapOption(editor, config, 'lineHeight');
-    mapOption(editor, config, 'lineNumbers');
-    mapOption(editor, config, 'lineWrap');
-    mapOption(editor, config, 'matchBrackets');
-    mapOption(editor, config, 'readOnly');
-    mapOption(editor, config, 'insertSpaces');
-    mapOption(editor, config, 'tabSize');
-    mapOption(editor, config, 'wordWrapColumn');
-    mapOption(editor, config, 'rulers');
-    mapOption(editor, config, 'codeFolding');
-  };
-
   const pluginId = '@jupyterlab/console-extension:tracker';
   let interactionMode: string;
-  let promptCellConfig: JSONObject;
+  let promptCellConfig: JSONObject = {};
 
   /**
    * Update settings for one console or all consoles.
@@ -469,7 +417,10 @@ async function activateConsole(
 
     const setWidgetOptions = (widget: ConsolePanel) => {
       widget.console.node.dataset.jpInteractionMode = interactionMode;
-      setOption(widget.console.promptCell?.editor, promptCellConfig);
+      // Update future promptCells
+      widget.console.editorConfig = promptCellConfig;
+      // Update promptCell already on screen
+      widget.console.promptCell?.editor?.setOptions(promptCellConfig);
     };
 
     if (panel) {
@@ -485,6 +436,18 @@ async function activateConsole(
     }
   });
   await updateSettings();
+
+  if (formRegistry) {
+    const CMRenderer = formRegistry.getRenderer(
+      '@jupyterlab/codemirror-extension:plugin.defaultConfig'
+    );
+    if (CMRenderer) {
+      formRegistry.addRenderer(
+        '@jupyterlab/console-extension:tracker.promptCellConfig',
+        CMRenderer
+      );
+    }
+  }
 
   // Apply settings when a console is created.
   tracker.widgetAdded.connect((sender, panel) => {
@@ -524,6 +487,7 @@ async function activateConsole(
 
   let command = CommandIDs.open;
   commands.addCommand(command, {
+    label: trans.__('Open a console for the provided `path`.'),
     execute: (args: IOpenOptions) => {
       const path = args['path'];
       const widget = tracker.find(value => {
@@ -570,7 +534,7 @@ async function activateConsole(
       const basePath =
         ((args['basePath'] as string) ||
           (args['cwd'] as string) ||
-          browserFactory?.defaultBrowser.model.path) ??
+          filebrowser?.model.path) ??
         '';
       return createConsole({ basePath, ...args });
     }
@@ -669,10 +633,7 @@ async function activateConsole(
       if (!current) {
         return;
       }
-      return sessionDialogs!.restart(
-        current.console.sessionContext,
-        translator
-      );
+      return sessionDialogs.restart(current.console.sessionContext);
     },
     isEnabled
   });
@@ -720,6 +681,7 @@ async function activateConsole(
   });
 
   commands.addCommand(CommandIDs.inject, {
+    label: trans.__('Inject some code in a console.'),
     execute: args => {
       const path = args['path'];
       tracker.find(widget => {
@@ -746,10 +708,7 @@ async function activateConsole(
       if (!current) {
         return;
       }
-      return sessionDialogs!.selectKernel(
-        current.console.sessionContext,
-        translator
-      );
+      return sessionDialogs.selectKernel(current.console.sessionContext);
     },
     isEnabled
   });
@@ -843,7 +802,9 @@ async function activateConsole(
 
   // Add the execute keystroke setting submenu.
   commands.addCommand(CommandIDs.interactionMode, {
-    label: args => runShortcutTitles[args['interactionMode'] as string] || '',
+    label: args =>
+      runShortcutTitles[args['interactionMode'] as string] ??
+      'Set the console interaction mode.',
     execute: async args => {
       const key = 'keyMap';
       try {
@@ -868,13 +829,19 @@ async function activateConsole(
 function activateConsoleCompleterService(
   app: JupyterFrontEnd,
   consoles: IConsoleTracker,
-  manager?: ICompletionProviderManager
+  manager: ICompletionProviderManager | null,
+  translator: ITranslator | null,
+  appSanitizer: IRenderMime.ISanitizer | null
 ): void {
   if (!manager) {
     return;
   }
 
+  const trans = (translator ?? nullTranslator).load('jupyterlab');
+  const sanitizer = appSanitizer ?? new Sanitizer();
+
   app.commands.addCommand(CommandIDs.invokeCompleter, {
+    label: trans.__('Display the completion helper.'),
     execute: () => {
       const id = consoles.currentWidget && consoles.currentWidget.id;
 
@@ -885,6 +852,7 @@ function activateConsoleCompleterService(
   });
 
   app.commands.addCommand(CommandIDs.selectCompleter, {
+    label: trans.__('Select the completion suggestion.'),
     execute: () => {
       const id = consoles.currentWidget && consoles.currentWidget.id;
 
@@ -910,7 +878,8 @@ function activateConsoleCompleterService(
       const newContext = {
         editor: cell.editor,
         session: codeConsole.sessionContext.session,
-        widget: consolePanel
+        widget: consolePanel,
+        sanitzer: sanitizer
       };
       manager.updateCompleter(newContext).catch(console.error);
     });
@@ -918,7 +887,8 @@ function activateConsoleCompleterService(
       const newContext = {
         editor: consolePanel.console.promptCell?.editor ?? null,
         session: consolePanel.console.sessionContext.session,
-        widget: consolePanel
+        widget: consolePanel,
+        sanitizer: sanitizer
       };
       manager.updateCompleter(newContext).catch(console.error);
     });

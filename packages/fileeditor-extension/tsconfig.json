@@ -31,6 +31,9 @@
       "path": "../docregistry"
     },
     {
+      "path": "../documentsearch"
+    },
+    {
       "path": "../filebrowser"
     },
     {
@@ -40,10 +43,16 @@
       "path": "../launcher"
     },
     {
+      "path": "../lsp"
+    },
+    {
       "path": "../mainmenu"
     },
     {
       "path": "../observables"
+    },
+    {
+      "path": "../rendermime-interfaces"
     },
     {
       "path": "../services"
@@ -53,6 +62,9 @@
     },
     {
       "path": "../statusbar"
+    },
+    {
+      "path": "../toc"
     },
     {
       "path": "../translation"
